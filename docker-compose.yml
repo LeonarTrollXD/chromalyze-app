@@ -1,0 +1,51 @@
+version: "3.9"
+
+services:
+  prueba: 
+    image: postgres:15
+    container_name: postgres_db
+    restart: always
+    environment:
+      POSTGRES_USER: Leonardo
+      POSTGRES_PASSWORD: Leonardo123
+      POSTGRES_DB: prueba
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build: ./backend
+    container_name: python_backend
+    restart: always
+    depends_on:
+      - prueba
+    # Fuerza a Django a escuchar al celular
+    command: python manage.py runserver 0.0.0.0:8000
+    environment:
+      DATABASE_URL: postgresql://Leonardo:Leonardo123@prueba:5432/prueba
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./backend/media:/app/media  # <-- Ahora está perfectamente alineado
+
+  frontend:
+    build: ./frontend
+    container_name: react_native_app
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "19000:19000"
+      - "19001:19001"
+      - "19002:19002"
+      - "8081:8081" 
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    stdin_open: true
+    tty: true
+
+volumes:
+  postgres_data:

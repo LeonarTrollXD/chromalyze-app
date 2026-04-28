@@ -1,0 +1,8 @@
+django>=4.2
+psycopg2-binary
+gunicorn
+dj-database-url
+django-cors-headers
+djangorestframework
+drf-spectacular==0.29.0
+Pillow==12.2.0
