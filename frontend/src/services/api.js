@@ -2,16 +2,20 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-// URL BASE - Asegúrate de que esta IP sea la correcta de tu servidor
-// Cambia la URL de App Runner por la IP de tu servidor EC2
-const API_BASE_URL = 'http://52.54.14.2:8000/api/';
+/**
+ * CONFIGURACIÓN DE URL DE PRODUCCIÓN (AWS EC2)
+ * Se usa la IP pública de tu instancia para que la APK sea independiente.
+ */
+export const API_URL = "http://52.54.14.2:8000/api/";
 
 const api = axios.create({
-    baseURL: API_BASE_URL,
+    baseURL: API_URL, // Corregido: Ahora coincide con la constante de arriba
     timeout: 30000,
 });
+
 /**
  * INTERCEPTOR DE PETICIONES
+ * Maneja la seguridad (Tokens) y el formato de URLs para Django.
  */
 api.interceptors.request.use(
     async (config) => {
@@ -23,6 +27,7 @@ api.interceptors.request.use(
         const isLogin = config.url.includes('login');
         const isRegister = config.url.includes('usuarios') && config.method === 'post';
 
+        // Si no es login o registro, adjuntamos el Token de autenticación
         if (!isLogin && !isRegister) {
             const token = await AsyncStorage.getItem('userToken');
             if (token) {
@@ -36,6 +41,7 @@ api.interceptors.request.use(
 
 /**
  * INTERCEPTOR DE RESPUESTAS
+ * Maneja el cierre de sesión automático si el token expira (Error 401).
  */
 api.interceptors.response.use(
     (response) => response,
@@ -66,9 +72,9 @@ export const authService = {
                 await AsyncStorage.setItem('userData', JSON.stringify(userData));
                 return response.data;
             }
-            throw new Error("Error en la respuesta del servidor.");
+            throw new Error("Respuesta inválida del servidor.");
         } catch (error) { 
-            return handleError(error, "Error en login"); 
+            return handleError(error, "Error en inicio de sesión"); 
         }
     },
 
@@ -87,7 +93,7 @@ export const authService = {
 };
 
 /**
- * SERVICIOS DE CAPTURA (Cámara)
+ * SERVICIOS DE CAPTURA (Cámara y Análisis)
  */
 export const capturaService = {
     crearCaptura: async (formData) => {
@@ -108,7 +114,7 @@ export const capturaService = {
             });
             return response.data;
         } catch (error) {
-            return handleError(error, "Error al actualizar nombre de captura");
+            return handleError(error, "Error al actualizar nombre");
         }
     },
 
@@ -129,16 +135,15 @@ export const capturaService = {
             });
             return response.data; 
         } catch (error) { 
-            return handleError(error, "Error en análisis"); 
+            return handleError(error, "Error en análisis de color"); 
         }
     }
 };
 
 /**
- * SERVICIOS DE PALETAS (Unificado y Corregido)
+ * SERVICIOS DE PALETAS (Gestión de Colores)
  */
 export const paletaService = {
-    // CORRECCIÓN: Se añade capturaId como parámetro opcional para vincular la imagen
     guardarPaletaTecnica: async (nombre, origen, colores, userId, capturaId = null) => {
         try {
             const payload = {
@@ -148,7 +153,6 @@ export const paletaService = {
                 usuario: userId
             };
 
-            // Vínculo crítico para que la biblioteca muestre la foto
             if (capturaId) {
                 payload.captura = capturaId;
             }
@@ -178,10 +182,8 @@ export const paletaService = {
         try {
             const response = await api.get(`paletas/?usuario=${userId}`);
             
-            // Procesamiento de datos para asegurar que el Frontend entienda los tipos
             const paletasProcesadas = response.data.map(p => ({
                 ...p,
-                // Normalización de origen para la UI
                 origen: p.origen || (p.origen_display?.includes("Manual") ? "MANUAL" : "CAMARA"),
                 colores_hex: p.colores_hex || []
             }));
@@ -209,7 +211,6 @@ const handleError = (error, defaultMsg) => {
     if (error.response) {
         const data = error.response.data;
         
-        // Manejo específico de errores de validación de Django
         if (data.usuario) {
             const msg = Array.isArray(data.usuario) ? data.usuario[0] : data.usuario;
             throw new Error(msg); 
@@ -222,7 +223,7 @@ const handleError = (error, defaultMsg) => {
     }
     
     if (error.message === 'Network Error') {
-        throw new Error("Sin conexión al servidor. Verifica que tu PC y el celular estén en la misma red y la IP sea correcta.");
+        throw new Error("No se pudo conectar con el servidor en AWS. Verifica tu conexión a internet.");
     }
     
     throw new Error(error.message || defaultMsg);
