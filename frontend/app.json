@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "prueba_app",
-    "slug": "prueba_app",
+    "name": "Chromalyze",
+    "slug": "chromalyze",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -10,15 +10,25 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#1A1A1C"
+      "backgroundColor": "#0A0A0B"
     },
-    "ios": { "supportsTablet": true },
+    "ios": {
+      "supportsTablet": true
+    },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#1A1A1C"
-      }
+        "backgroundColor": "#0A0A0B"
+      },
+      "package": "com.leonsagui2003.chromalyze"
     },
-    "plugins": ["expo-asset"]
+    "plugins": [
+      "expo-asset"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "f97ec66a-3a6e-4d7f-b13e-e883e5bec32a"
+      }
+    }
   }
 }

@@ -12,7 +12,6 @@ import {
 import { capturaService } from '../services/api'; 
 import { useAuth } from '../context/AuthContext';
 
-// CAMBIO CLAVE: Cambiamos onNavigate por navigation
 const LoadingScreen = ({ navigation, route }) => {
     const { user } = useAuth(); 
     const imageUri = route?.params?.imageUri || null; 
@@ -30,9 +29,9 @@ const LoadingScreen = ({ navigation, route }) => {
         ).start();
 
         const procesarImagen = async () => {
+            // CAMUFLAJE: Si no hay imageUri, volvemos al Scanner silenciosamente
             if (!imageUri) {
-                Alert.alert("Chromalyze Error", "No se detectó una imagen.");
-                navigation.navigate('Scanner'); // CAMBIO: navigation.navigate
+                navigation.navigate('Scanner'); 
                 return;
             }
 
@@ -47,7 +46,7 @@ const LoadingScreen = ({ navigation, route }) => {
                     const userId = user?.id; 
                     if (!userId) {
                         Alert.alert("Sesión Requerida", "Debes estar logueado para guardar.");
-                        navigation.navigate('Login'); // CAMBIO: navigation.navigate
+                        navigation.navigate('Login'); 
                         return;
                     }
 
@@ -67,7 +66,7 @@ const LoadingScreen = ({ navigation, route }) => {
                 if (resultado && (resultado.colores_hex || resultado.colores_predominantes)) {
                     const finalColors = resultado.colores_hex || resultado.colores_predominantes;
                     
-                    // CAMBIO: navigation.replace para que al dar atrás no vuelva a cargar
+                    // navigation.replace para evitar volver al loading al dar atrás
                     navigation.replace('Results', { 
                         colorsData: finalColors, 
                         imageUri: imageUri, 
@@ -82,7 +81,7 @@ const LoadingScreen = ({ navigation, route }) => {
                     "Error de Análisis", 
                     error.message || "No se pudo conectar con el servidor Django."
                 );
-                navigation.navigate('Scanner'); // CAMBIO: navigation.navigate
+                navigation.navigate('Scanner'); 
             }
         };
 

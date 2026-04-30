@@ -18,11 +18,12 @@ class Captura(models.Model):
     fecha_captura = models.DateTimeField(auto_now_add=True)
 
     def clean(self):
-        # Lógica de límite para Plan Básico
-        if self.usuario and not self.pk: # Solo validar al crear (no al editar)
-            # Suponiendo que tienes un campo 'es_premium' en tu modelo Usuario
-            # Si no lo tienes, puedes limitarlos a todos por igual por ahora
+        """
+        Lógica de validación: Limita a 3 capturas si el usuario no es premium.
+        """
+        if self.usuario and not self.pk: # Solo al crear
             conteo = Captura.objects.filter(usuario=self.usuario).count()
+            # Aquí podrías checkear el rol del usuario si lo tienes implementado
             if conteo >= 3:
                 raise ValidationError(
                     "Has alcanzado el límite de 3 capturas del plan básico. "
@@ -30,8 +31,17 @@ class Captura(models.Model):
                 )
 
     def save(self, *args, **kwargs):
-        self.full_clean() # Fuerza a ejecutar el método clean antes de guardar
+        # Forzamos la ejecución de clean() antes de guardar en la BD
+        self.full_clean()
         super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        """
+        Al eliminar el registro, también borramos el archivo físico de la imagen.
+        """
+        if self.imagen:
+            self.imagen.delete(save=False)
+        super().delete(*args, **kwargs)
 
     def __str__(self):
         user_name = self.usuario.nombre if self.usuario else "Escaneo Rápido"

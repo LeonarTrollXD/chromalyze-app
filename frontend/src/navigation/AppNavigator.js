@@ -4,19 +4,22 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text } from 'react-native'; 
 import { useAuth } from '../context/AuthContext';
 
-// Pantallas
+// --- PANTALLAS ---
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import HomeScreen from '../screens/home'; 
 import ScannerScreen from '../screens/ScannerScreen';
 import LoadingScreen from '../screens/LoadingScreen';
 import ResultsScreen from '../screens/ResultsScreen';
-import ManualCreatorScreen from '../screens/ManualCreatorScreen'; // <-- IMPORTADO
+import ManualCreatorScreen from '../screens/ManualCreatorScreen';
+import PaletteScannerScreen from '../screens/PaletteScannerScreen';
+import BibliotecaScreen from '../screens/BibliotecaScreen';
+import ConfigurationScreen from '../screens/ConfigurationScreen'; // <--- IMPORTADA
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 
-// --- 1. CONFIGURACIÓN DEL MENÚ INFERIOR ---
+// --- 1. CONFIGURACIÓN DEL MENÚ INFERIOR (TAB NAVIGATOR) ---
 const TabNavigator = () => {
     return (
         <Tab.Navigator
@@ -27,8 +30,8 @@ const TabNavigator = () => {
                 tabBarStyle: {
                     backgroundColor: '#161618',
                     borderTopWidth: 0,
-                    height: 70,
-                    paddingBottom: 12,
+                    height: 75,
+                    paddingBottom: 15,
                     paddingTop: 10,
                 },
                 tabBarLabelStyle: {
@@ -41,31 +44,43 @@ const TabNavigator = () => {
                 name="InicioTab" 
                 component={HomeScreen} 
                 options={{
-                    tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>🏠</Text>,
+                    tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 22 }}>🏠</Text>,
                     tabBarLabel: 'HOME'
                 }}
             />
+            
             <Tab.Screen 
-                name="ScannerTab" 
+                name="PaletteLab" 
                 component={ScannerScreen} 
                 options={{
-                    tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>📸</Text>,
-                    tabBarLabel: 'SCANNER'
+                    tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 22 }}>🧪</Text>,
+                    tabBarLabel: 'PALETTE LAB'
                 }}
             />
+
             <Tab.Screen 
-                name="ColeccionTab" 
-                component={ResultsScreen} 
+                name="BibliotecaTab" 
+                component={BibliotecaScreen} 
                 options={{
-                    tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>🎨</Text>,
-                    tabBarLabel: 'BIBLIOTECA'
+                    tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 22 }}>📁</Text>,
+                    tabBarLabel: 'BIBLIOTECA' 
+                }}
+            />
+
+            {/* MODIFICADO: Ahora apunta a ConfigurationScreen */}
+            <Tab.Screen 
+                name="ConfigTab" 
+                component={ConfigurationScreen} 
+                options={{
+                    tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 22 }}>⚙️</Text>,
+                    tabBarLabel: 'AJUSTES'
                 }}
             />
         </Tab.Navigator>
     );
 };
 
-// --- 2. NAVEGADOR PRINCIPAL ---
+// --- 2. NAVEGADOR PRINCIPAL (STACK) ---
 const AppNavigator = () => {
     const { isAuthenticated, loading } = useAuth();
 
@@ -83,23 +98,32 @@ const AppNavigator = () => {
                     <Stack.Screen name="MainApp" component={TabNavigator} />
                     
                     <Stack.Screen 
-                        name="Scanner" 
-                        component={ScannerScreen} 
+                        name="PaletteScanner" 
+                        component={PaletteScannerScreen} 
                         options={{ 
                             headerShown: true, 
-                            headerTitle: 'ESCANEAR COLOR', 
+                            headerTitle: 'LABORATORIO MANUAL', 
                             headerStyle: { backgroundColor: '#1A1A1C', borderBottomWidth: 0 }, 
                             headerTintColor: '#FFF',
                             headerTitleAlign: 'center',
                         }}
                     />
 
-                    {/* --- NUEVA RUTA REGISTRADA PARA DISEÑO MANUAL --- */}
                     <Stack.Screen 
                         name="ManualCreator" 
                         component={ManualCreatorScreen} 
+                        options={{ headerShown: false }}
+                    />
+
+                    <Stack.Screen 
+                        name="Scanner" 
+                        component={ScannerScreen} 
                         options={{ 
-                            headerShown: false, // La pantalla ya tiene su propio Header personalizado
+                            headerShown: true, 
+                            headerTitle: 'EXTRACTOR DE COLOR', 
+                            headerStyle: { backgroundColor: '#1A1A1C', borderBottomWidth: 0 }, 
+                            headerTintColor: '#FFF',
+                            headerTitleAlign: 'center',
                         }}
                     />
                     
@@ -110,7 +134,32 @@ const AppNavigator = () => {
                         component={ResultsScreen} 
                         options={{
                             headerShown: true,
-                            headerTitle: 'ANÁLISIS DE COLOR',
+                            headerTitle: 'RESULTADOS AI',
+                            headerStyle: { backgroundColor: '#1A1A1C', borderBottomWidth: 0 },
+                            headerTintColor: '#FFF',
+                            headerTitleAlign: 'center',
+                        }}
+                    />
+
+                    <Stack.Screen 
+                        name="Biblioteca" 
+                        component={BibliotecaScreen} 
+                        options={{
+                            headerShown: true,
+                            headerTitle: 'MIS PROYECTOS',
+                            headerStyle: { backgroundColor: '#1A1A1C', borderBottomWidth: 0 },
+                            headerTintColor: '#FFF',
+                            headerTitleAlign: 'center',
+                        }}
+                    />
+
+                    {/* También añadimos Ajustes al Stack para poder navegar directamente si es necesario */}
+                    <Stack.Screen 
+                        name="Ajustes" 
+                        component={ConfigurationScreen} 
+                        options={{
+                            headerShown: true,
+                            headerTitle: 'CONFIGURACIÓN',
                             headerStyle: { backgroundColor: '#1A1A1C', borderBottomWidth: 0 },
                             headerTintColor: '#FFF',
                             headerTitleAlign: 'center',

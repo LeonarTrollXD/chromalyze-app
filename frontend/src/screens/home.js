@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { 
     StyleSheet, 
     Text, 
@@ -7,19 +7,68 @@ import {
     Alert, 
     StatusBar,
     ScrollView,
-    Dimensions
+    Dimensions,
+    ActivityIndicator
 } from 'react-native';
 import { useAuth as useGlobalAuth } from '../context/AuthContext';
+import { useFocusEffect } from '@react-navigation/native';
+import { paletaService } from '../services/api';
+// Importamos los iconos para identificar el origen
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
 
 const HomeScreen = ({ navigation }) => {
     const { user, logout } = useGlobalAuth(); 
-    
-    const [recentPalettes, setRecentPalettes] = useState([
-        { id: 1, colors: ['#69ED44', '#2C2C2E', '#FFFFFF', '#0A0A0B'], name: 'Modern Dark' },
-        { id: 2, colors: ['#FF5733', '#C70039', '#900C3F', '#581845'], name: 'Atardecer' },
-    ]);
+    const [recentPalettes, setRecentPalettes] = useState([]); // Cambiado para ser general
+    const [captureCount, setCaptureCount] = useState(0);
+    const [totalManualCount, setTotalManualCount] = useState(0); 
+    const [loading, setLoading] = useState(true);
+
+    useFocusEffect(
+        useCallback(() => {
+            const fetchData = async () => {
+                try {
+                    setLoading(true);
+                    const userId = user?.id || (user?.user && user.user.id);
+                    
+                    if (userId) {
+                        const response = await paletaService.listarPaletas(userId);
+                        const allPalettes = response.data || [];
+
+                        // --- 1. RECIENTES (MEZCLADOS) ---
+                        // Tomamos los 3 primeros de la lista general (asumiendo que vienen ordenados por fecha desc)
+                        setRecentPalettes(allPalettes.slice(0, 3));
+
+                        // --- 2. LÓGICA DE FILTRADO PARA CONTADORES (PLAN BÁSICO) ---
+                        
+                        // Filtrar Manuales para el contador verde
+                        const manualOnly = allPalettes.filter(p => 
+                            p.origen === 'MANUAL' || 
+                            p.origen_label?.toLowerCase().includes('manual')
+                        );
+
+                        // Filtrar Capturas para el contador azul
+                        const capturesOnly = allPalettes.filter(p => 
+                            p.origen === 'CAMARA' || 
+                            p.origen_label?.toLowerCase().includes('cámara') ||
+                            p.origen_label?.toLowerCase().includes('captura')
+                        );
+
+                        // Guardamos los conteos exactos
+                        setTotalManualCount(manualOnly.length);
+                        setCaptureCount(capturesOnly.length);
+                    }
+                } catch (error) {
+                    console.error("Error al sincronizar data en Home:", error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            fetchData();
+        }, [user])
+    );
 
     const handleLogout = async () => {
         try {
@@ -29,144 +78,171 @@ const HomeScreen = ({ navigation }) => {
         }
     };
 
+    const limit = 3;
+
     return (
         <View style={styles.container}>
             <StatusBar barStyle="light-content" />
             
-            <ScrollView 
-                contentContainerStyle={styles.scrollContent} 
-                showsVerticalScrollIndicator={false}
-            >
-                {/* --- SECCIÓN SUPERIOR: BRANDING --- */}
+            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                {/* --- HEADER & BRANDING --- */}
                 <View style={styles.brandSection}>
                     <Text style={styles.brandTitle}>Chromalyze</Text>
                     <View style={styles.sloganContainer}>
-                        <Text style={styles.sloganText}>
-                            SISTEMAS UNIVERSIDAD • v1.0
-                        </Text>
+                        <View style={styles.liveDot} />
+                        <Text style={styles.sloganText}>SISTEMAS UNIVERSIDAD • v1.0</Text>
                     </View>
                 </View>
 
-                {/* --- BIENVENIDA AL USUARIO --- */}
+                {/* --- BIENVENIDA --- */}
                 <View style={styles.welcomeCard}>
                     <View>
-                        <Text style={styles.welcomeLabel}>SESIÓN ACTIVA</Text>
+                        <Text style={styles.welcomeLabel}>PROYECTO ACTIVO</Text>
                         <Text style={styles.userName}>
                             HOLA, {user?.nombre?.split(' ')[0].toUpperCase() || 'USUARIO'}
                         </Text>
                     </View>
-                    <TouchableOpacity 
-                        style={styles.logoutCircle} 
-                        onPress={handleLogout}
-                        activeOpacity={0.7}
-                    >
+                    <TouchableOpacity style={styles.logoutCircle} onPress={handleLogout}>
                         <Text style={styles.logoutIcon}>🚪</Text>
                     </TouchableOpacity>
                 </View>
 
-                {/* --- SECCIÓN: RECIENTES (SUBIDA DE POSICIÓN) --- */}
+                {/* --- SECCIÓN DE RECIENTES (AHORA MUESTRA TODO) --- */}
                 <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>TUS ÚLTIMAS CREACIONES</Text>
+                    <Text style={styles.sectionTitle}>RECIENTES</Text>
                     <TouchableOpacity onPress={() => navigation.navigate('ColeccionTab')}> 
                         <Text style={styles.seeMore}>Ver todas</Text>
                     </TouchableOpacity>
                 </View>
                 
-                <ScrollView 
-                    horizontal 
-                    showsHorizontalScrollIndicator={false} 
-                    style={styles.horizontalScroll}
-                >
-                    {recentPalettes.map((palette) => (
-                        <View key={palette.id} style={styles.paletteCard}>
-                            <View style={styles.colorStrip}>
-                                {palette.colors.map((color, index) => (
-                                    <View key={index} style={[styles.colorDot, { backgroundColor: color }]} />
-                                ))}
-                            </View>
-                            <Text style={styles.paletteName}>{palette.name}</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalScroll}>
+                    {loading ? (
+                        <View style={[styles.paletteCard, { justifyContent: 'center' }]}>
+                            <ActivityIndicator color="#69ED44" />
                         </View>
-                    ))}
-                    {/* Botón rápido para ir al motor de captura/creación */}
+                    ) : (
+                        recentPalettes.map((palette) => (
+                            <View key={palette.id} style={styles.paletteCard}>
+                                <View style={styles.colorStrip}>
+                                    {(palette.colores_hex || palette.colores || []).map((color, index) => (
+                                        <View 
+                                            key={index} 
+                                            style={[
+                                                styles.colorDot, 
+                                                { backgroundColor: typeof color === 'string' ? color : (color.hex || '#333') }
+                                            ]} 
+                                        />
+                                    ))}
+                                </View>
+                                
+                                <View style={styles.nameRow}>
+                                    <Text style={styles.paletteName} numberOfLines={1}>
+                                        {palette.nombre}
+                                    </Text>
+                                    {/* El icono cambia dinámicamente según el origen de la paleta reciente */}
+                                    <MaterialCommunityIcons 
+                                        name={palette.origen === 'CAMARA' || palette.origen_label?.toLowerCase().includes('cámara') ? 'camera' : 'brush'} 
+                                        size={14} 
+                                        color="#666" 
+                                    />
+                                </View>
+                            </View>
+                        ))
+                    )}
+                    
                     <TouchableOpacity 
                         style={[styles.paletteCard, styles.addCard]} 
-                        onPress={() => navigation.navigate('Scanner')}
+                        onPress={() => navigation.navigate('PaletteScanner')}
                     >
                         <Text style={styles.addIcon}>+</Text>
-                        <Text style={styles.addText}>NUEVO</Text>
+                        <Text style={styles.addText}>CREAR</Text>
                     </TouchableOpacity>
                 </ScrollView>
 
-                {/* --- SECCIÓN: INSPIRACIÓN --- */}
-                <Text style={styles.sectionTitle}>INSPIRACIÓN DEL DÍA</Text>
-                <View style={styles.inspirationCard}>
+                {/* --- SECCIÓN PLAN BASICO (LÓGICA FILTRADA) --- */}
+                <Text style={styles.sectionTitle}>PLAN BASICO</Text>
+                <View style={styles.statusGrid}>
+                    <View style={styles.statusBox}>
+                        <Text style={styles.statusValue}>{totalManualCount}<Text style={styles.statusMax}>/{limit}</Text></Text>
+                        <Text style={styles.statusLabel}>PALETAS TÉCNICAS</Text>
+                        <View style={styles.progressBarBg}>
+                            <View style={[styles.progressBarInfo, { width: `${Math.min((totalManualCount/limit)*100, 100)}%` }]} />
+                        </View>
+                    </View>
+
+                    <View style={styles.statusBox}>
+                        <Text style={styles.statusValue}>{captureCount}<Text style={styles.statusMax}>/{limit}</Text></Text>
+                        <Text style={styles.statusLabel}>ESCANEOS CÁMARA</Text>
+                        <View style={styles.progressBarBg}>
+                            <View style={[styles.progressBarInfo, { width: `${Math.min((captureCount/limit)*100, 100)}%`, backgroundColor: '#44CCFF' }]} />
+                        </View>
+                    </View>
+                </View>
+
+                {/* --- INSPIRACIÓN --- */}
+                <Text style={[styles.sectionTitle, {marginTop: 30}]}>INSPIRACIÓN</Text>
+                <TouchableOpacity style={styles.inspirationCard}>
                     <View style={[styles.bigColorBlock, { backgroundColor: '#69ED44' }]} />
                     <View style={styles.inspirationInfo}>
                         <Text style={styles.colorHex}>#69ED44</Text>
                         <Text style={styles.colorName}>Verde Chromalyze</Text>
-                        <Text style={styles.inspirationTip}>Úsalo como color de acento sobre fondos #0A0A0B para un look futurista.</Text>
+                        <Text style={styles.inspirationTip}>Optimizado para contraste en OLED.</Text>
                     </View>
-                </View>
+                </TouchableOpacity>
 
-                {/* --- INFO DE PLAN --- */}
-                <View style={styles.planBadge}>
-                    <Text style={styles.planText}>ESTADO: PLAN BASICO (3/3 DISPONIBLES)</Text>
-                </View>
-
-                {/* --- FOOTER ACADÉMICO --- */}
                 <View style={styles.footer}>
-                    <View style={styles.dot} />
-                    <Text style={styles.academicText}>PROYECTO DE GRADO - SISTEMAS</Text>
+                    <Text style={styles.academicText}>ANÁLISIS Y DISEÑO II • 2026</Text>
                 </View>
             </ScrollView>
         </View>
     );
 };
-
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#0A0A0B' },
     scrollContent: { paddingHorizontal: 20, paddingBottom: 100 },
-    brandSection: { marginTop: 50, alignItems: 'flex-start', marginBottom: 25 },
-    brandTitle: { color: '#FFF', fontSize: 32, fontWeight: '100', letterSpacing: 2 },
-    sloganContainer: { marginTop: 5 },
-    sloganText: { color: '#69ED44', fontSize: 10, fontWeight: 'bold', letterSpacing: 1 },
+    brandSection: { marginTop: 60, marginBottom: 25 },
+    brandTitle: { color: '#FFF', fontSize: 34, fontWeight: '100', letterSpacing: 3 },
+    sloganContainer: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+    liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#69ED44', marginRight: 6 },
+    sloganText: { color: '#69ED44', fontSize: 10, fontWeight: 'bold', letterSpacing: 1.5 },
     welcomeCard: { 
-        flexDirection: 'row', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        backgroundColor: '#161618', 
-        padding: 20, 
-        borderRadius: 20, 
-        borderWidth: 1, 
-        borderColor: '#2C2C2E',
-        marginBottom: 25
+        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', 
+        backgroundColor: '#121214', padding: 22, borderRadius: 24, borderWidth: 1, borderColor: '#1F1F22', marginBottom: 30
     },
-    welcomeLabel: { color: '#8E8E93', fontSize: 10, fontWeight: 'bold', letterSpacing: 1 },
-    userName: { color: '#FFF', fontSize: 22, fontWeight: '900', marginTop: 2 },
-    logoutCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#2C2C2E', justifyContent: 'center', alignItems: 'center' },
-    logoutIcon: { fontSize: 16 },
-    sectionTitle: { color: '#FFF', fontSize: 13, fontWeight: 'bold', marginBottom: 15, letterSpacing: 1, marginTop: 10 },
-    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
-    seeMore: { color: '#69ED44', fontSize: 12 },
-    horizontalScroll: { marginBottom: 30, marginTop: 5 },
-    paletteCard: { backgroundColor: '#1C1C1E', padding: 15, borderRadius: 18, marginRight: 15, width: 140, borderWidth: 1, borderColor: '#2C2C2E' },
-    colorStrip: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-    colorDot: { width: 22, height: 22, borderRadius: 11 },
-    paletteName: { color: '#FFF', fontSize: 12, fontWeight: '500' },
-    addCard: { justifyContent: 'center', alignItems: 'center', borderStyle: 'dashed', borderColor: '#444' },
-    addIcon: { color: '#69ED44', fontSize: 24, fontWeight: 'bold' },
-    addText: { color: '#666', fontSize: 9, fontWeight: 'bold', marginTop: 5 },
-    inspirationCard: { backgroundColor: '#161618', borderRadius: 20, padding: 15, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#2C2C2E' },
-    bigColorBlock: { width: 80, height: 80, borderRadius: 15 },
+    welcomeLabel: { color: '#666', fontSize: 9, fontWeight: 'bold', letterSpacing: 1 },
+    userName: { color: '#FFF', fontSize: 24, fontWeight: '900', marginTop: 2 },
+    logoutCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#1F1F22', justifyContent: 'center', alignItems: 'center' },
+    logoutIcon: { fontSize: 18 },
+    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 15 },
+    sectionTitle: { color: '#444', fontSize: 12, fontWeight: '900', letterSpacing: 1.5 },
+    seeMore: { color: '#69ED44', fontSize: 12, fontWeight: '600' },
+    horizontalScroll: { marginBottom: 10 },
+    paletteCard: { backgroundColor: '#161618', padding: 16, borderRadius: 20, marginRight: 15, width: 150, borderWidth: 1, borderColor: '#242427', height: 100, justifyContent: 'center' },
+    colorStrip: { flexDirection: 'row', gap: 6, marginBottom: 12 },
+    colorDot: { width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+    
+    // Nuevo estilo para la fila de nombre e icono
+    nameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    paletteName: { color: '#EEE', fontSize: 12, fontWeight: '600', flex: 1, marginRight: 5 },
+    
+    addCard: { borderStyle: 'dashed', borderColor: '#333', alignItems: 'center' },
+    addIcon: { color: '#69ED44', fontSize: 26, fontWeight: 'bold' },
+    addText: { color: '#69ED44', fontSize: 10, fontWeight: 'bold', marginTop: 4 },
+    statusGrid: { flexDirection: 'row', justifyContent: 'space-between', gap: 15 },
+    statusBox: { flex: 1, backgroundColor: '#121214', padding: 18, borderRadius: 22, borderWidth: 1, borderColor: '#1F1F22' },
+    statusValue: { color: '#FFF', fontSize: 28, fontWeight: '900' },
+    statusMax: { color: '#444', fontSize: 16 },
+    statusLabel: { color: '#888', fontSize: 9, fontWeight: 'bold', marginTop: 4, marginBottom: 12 },
+    progressBarBg: { height: 4, backgroundColor: '#222', borderRadius: 2, overflow: 'hidden' },
+    progressBarInfo: { height: '100%', backgroundColor: '#69ED44', borderRadius: 2 },
+    inspirationCard: { backgroundColor: '#121214', borderRadius: 24, padding: 15, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#1F1F22' },
+    bigColorBlock: { width: 70, height: 70, borderRadius: 18 },
     inspirationInfo: { marginLeft: 15, flex: 1 },
-    colorHex: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
-    colorName: { color: '#69ED44', fontSize: 12, marginBottom: 5 },
-    inspirationTip: { color: '#888', fontSize: 10, lineHeight: 14 },
-    planBadge: { backgroundColor: '#161618', padding: 12, borderRadius: 15, marginTop: 40, alignItems: 'center', borderWidth: 1, borderColor: '#2C2C2E' },
-    planText: { color: '#69ED44', fontSize: 10, fontWeight: 'bold' },
-    footer: { marginTop: 40, marginBottom: 20, alignItems: 'center', opacity: 0.3 },
-    academicText: { color: '#FFF', fontSize: 9, letterSpacing: 1 },
-    dot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#69ED44', marginBottom: 10 }
+    colorHex: { color: '#FFF', fontSize: 20, fontWeight: 'bold' },
+    colorName: { color: '#69ED44', fontSize: 13, marginBottom: 4 },
+    inspirationTip: { color: '#555', fontSize: 11 },
+    footer: { marginTop: 50, alignItems: 'center', opacity: 0.4 },
+    academicText: { color: '#FFF', fontSize: 10, letterSpacing: 2 }
 });
 
 export default HomeScreen;

@@ -1,85 +1,89 @@
 import React, { useState, useEffect } from 'react';
 import { 
-    View, Text, TouchableOpacity, StyleSheet, Image, 
-    ScrollView, Alert, Modal, TextInput, ActivityIndicator, Platform 
+    View, Text, TouchableOpacity, Image, 
+    ScrollView, Alert, Modal, TextInput, ActivityIndicator, Platform,
+    StyleSheet 
 } from 'react-native';
 import { capturaService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useColors } from '../context/ColorContext'; 
 
 const ResultsScreen = ({ navigation, route }) => {
     const { user } = useAuth();
-    const { colorsData: rawColors = [], imageUri = null } = route.params || {};
+    const { setPalette } = useColors(); 
+    
+    const { 
+        colorsData: rawColors = [], 
+        imageUri = null, 
+        existenteId = null, 
+        nombreExistente = '' 
+    } = route.params || {};
     
     const [colorsData, setColorsData] = useState([]);
     const [mode, setMode] = useState('view'); 
     const [selectedIndices, setSelectedIndices] = useState([]);
     const [showSaveModal, setShowSaveModal] = useState(false);
-    const [captureName, setCaptureName] = useState('');
+    const [captureName, setCaptureName] = useState(nombreExistente || '');
     const [loading, setLoading] = useState(false);
-    const [isSaved, setIsSaved] = useState(false);
-
-    const isColorDark = (hex) => {
-        if (!hex) return false;
-        const color = hex.replace('#', '');
-        const r = parseInt(color.substr(0, 2), 16);
-        const g = parseInt(color.substr(2, 2), 16);
-        const b = parseInt(color.substr(4, 2), 16);
-        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-        return brightness < 128;
-    };
+    const [isSaved, setIsSaved] = useState(!!existenteId); 
+    const [isUpdatingName, setIsUpdatingName] = useState(!!existenteId);
 
     useEffect(() => {
         if (rawColors && rawColors.length > 0) {
-            const cleanedColors = rawColors.map(item => ({
+            const sortedColors = [...rawColors].sort((a, b) => {
+                const pA = a.percent || a.porcentaje || 0;
+                const pB = b.percent || b.porcentaje || 0;
+                return pB - pA;
+            });
+
+            const cleanedColors = sortedColors.map(item => ({
                 ...item,
                 percent: item.percent || item.porcentaje || 0,
-                rgb: item.rgb || (item.r ? `${item.r}, ${item.g}, ${item.b}` : 'N/A')
+                rgb: item.rgb || (item.r ? `${item.r}, ${item.g}, ${item.b}` : 'N/A'),
+                hex: item.hex || item.codigo_hex
             }));
             setColorsData(cleanedColors);
         }
     }, [rawColors]);
 
     const handleConfirmSave = async () => {
-        if (!captureName.trim()) {
+        const cleanName = captureName.trim();
+        if (!cleanName) {
             return Alert.alert("Chromalyze", "Ingresa un nombre para tu proyecto.");
         }
 
         setLoading(true);
         try {
-            const formData = new FormData();
-            
-            // 1. Datos básicos
-            formData.append('nombre', captureName.trim());
-            // Usamos el ID del usuario del contexto o un fallback seguro
-            formData.append('usuario', user?.id || user?.pk || 1); 
-            
-            // 2. Colores: Los enviamos como String JSON (importante para Django)
-            formData.append('colores_predominantes', JSON.stringify(colorsData)); 
-            
-            // 3. Imagen: Construcción robusta del archivo
-            if (imageUri) {
-                const filename = imageUri.split('/').pop() || `captura_${Date.now()}.jpg`;
-                const match = /\.(\w+)$/.exec(filename);
-                const type = match ? `image/${match[1]}` : `image/jpeg`;
-
-                formData.append('imagen', {
-                    uri: Platform.OS === 'ios' ? imageUri.replace('file://', '') : imageUri,
-                    name: filename,
-                    type: type,
-                });
+            if (isUpdatingName && existenteId) {
+                await capturaService.actualizarNombreCaptura(existenteId, cleanName);
+                Alert.alert("Éxito", "Nombre actualizado correctamente.");
+            } else {
+                const formData = new FormData();
+                formData.append('nombre', cleanName);
+                formData.append('usuario', user?.id || user?.pk || 1); 
+                
+                const hexList = colorsData.map(c => c.hex);
+                formData.append('colores_hex', JSON.stringify(hexList));
+                formData.append('colores_predominantes', JSON.stringify(colorsData)); 
+                
+                if (imageUri) {
+                    const filename = imageUri.split('/').pop() || `captura_${Date.now()}.jpg`;
+                    const match = /\.(\w+)$/.exec(filename);
+                    const type = match ? `image/${match[1]}` : `image/jpeg`;
+                    formData.append('imagen', {
+                        uri: Platform.OS === 'ios' ? imageUri.replace('file://', '') : imageUri,
+                        name: filename,
+                        type: type,
+                    });
+                }
+                await capturaService.crearCaptura(formData);
+                setIsSaved(true);
+                setIsUpdatingName(true);
+                Alert.alert("¡Éxito!", "Proyecto guardado en tu biblioteca.");
             }
-
-            // Llamada al servicio corregido
-            await capturaService.crearCaptura(formData);
-            
-            setIsSaved(true);
             setShowSaveModal(false); 
-            Alert.alert("¡Éxito!", "Proyecto guardado en tu biblioteca.");
-
         } catch (err) {
-            console.log("DEBUG ERROR CAPTURA:", err.message);
-            // Mostramos el error real que viene de api.js
-            Alert.alert("Error de Guardado", err.message || "No se pudo conectar con el servidor.");
+            Alert.alert("Error", err.message || "No se pudo procesar la solicitud.");
         } finally {
             setLoading(false);
         }
@@ -87,21 +91,49 @@ const ResultsScreen = ({ navigation, route }) => {
 
     const handleGoToEditor = () => {
         if (selectedIndices.length === 0) return Alert.alert("Aviso", "Selecciona al menos un color.");
+        
         const selectedColors = selectedIndices.map(i => colorsData[i]);
-        navigation.navigate('EditorPaleta', { selectedColors }); 
+        
+        // CORRECCIÓN: Estructura exacta para el setPalette del ColorContext
+        const newPalette = Array(5).fill(null).map((_, index) => {
+            if (selectedColors[index]) {
+                const hexVal = selectedColors[index].hex;
+                const rgbVal = selectedColors[index].rgb;
+                return {
+                    id: index,
+                    hex: hexVal,
+                    rgb: rgbVal.includes('rgb') ? rgbVal : `rgb(${rgbVal})`,
+                    filled: true
+                };
+            }
+            return { id: index, hex: '#FFFFFF', rgb: 'rgb(255, 255, 255)', filled: false };
+        });
+        
+        // Enviamos la propiedad "palette" al contexto para evitar errores de guardado
+        setPalette({ palette: newPalette }); 
+        navigation.navigate('PaletteScanner'); 
     };
 
     const toggleColor = (index) => {
         if (mode !== 'combining') return;
-        setSelectedIndices(prev => 
-            prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index]
-        );
+        
+        setSelectedIndices(prev => {
+            if (prev.includes(index)) return prev.filter(i => i !== index);
+            const limit = user?.is_premium ? 50 : 4; 
+            if (prev.length >= limit) {
+                Alert.alert("Límite alcanzado", `Como usuario ${user?.is_premium ? 'Premium' : 'Básico'} puedes seleccionar hasta ${limit} colores.`);
+                return prev;
+            }
+            return [...prev, index];
+        });
     }
 
     return (
         <View style={styles.container}>
             <ScrollView contentContainerStyle={styles.content}>
-                <Text style={styles.headerTitle}>ANÁLISIS DE COLOR REAL</Text>
+                <Text style={styles.headerTitle}>
+                    {captureName ? captureName.toUpperCase() : "ANÁLISIS DE COLOR REAL"}
+                </Text>
                 
                 <View style={styles.imageCard}>
                     {imageUri && <Image source={{ uri: imageUri }} style={styles.mainImage} resizeMode="cover" />}
@@ -112,53 +144,34 @@ const ResultsScreen = ({ navigation, route }) => {
 
                 <View style={styles.panel}>
                     <Text style={styles.panelTitle}>
-                        {mode === 'combining' 
-                            ? "SELECCIONA COLORES PARA TU COMBINACIÓN" 
-                            : "COLORES PREDOMINANTES DETECTADOS"}
+                        {mode === 'combining' ? "SELECCIONA COLORES" : "COLORES PREDOMINANTES DETECTADOS"}
                     </Text>
                     
-                    {colorsData.map((item, index) => {
-                        const isDark = isColorDark(item.hex);
-                        return (
-                            <TouchableOpacity 
-                                key={index} 
-                                onPress={() => toggleColor(index)}
-                                activeOpacity={mode === 'combining' ? 0.7 : 1}
-                                style={[
-                                    styles.colorRow, 
-                                    mode === 'combining' && selectedIndices.includes(index) && styles.selectedRow
-                                ]}
-                            >
-                                <View style={styles.rowTop}>
-                                    <View style={styles.colorInfoLeft}>
-                                        <View style={[
-                                            styles.miniSquare, 
-                                            { 
-                                                backgroundColor: item.hex,
-                                                borderColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)',
-                                                borderWidth: 1
-                                            }
-                                        ]} />
-                                        <View>
-                                            <Text style={styles.hexText}>{item.hex.toUpperCase()}</Text>
-                                            <Text style={styles.rgbText}>RGB: {item.rgb || 'N/A'}</Text>
-                                        </View>
+                    {colorsData.map((item, index) => (
+                        <TouchableOpacity 
+                            key={index} 
+                            onPress={() => toggleColor(index)}
+                            activeOpacity={mode === 'combining' ? 0.7 : 1}
+                            style={[
+                                styles.colorRow, 
+                                mode === 'combining' && selectedIndices.includes(index) && styles.selectedRow
+                            ]}
+                        >
+                            <View style={styles.rowTop}>
+                                <View style={styles.colorInfoLeft}>
+                                    <View style={[styles.miniSquare, { backgroundColor: item.hex, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' }]} />
+                                    <View>
+                                        <Text style={styles.hexText}>{item.hex.toUpperCase()}</Text>
+                                        <Text style={styles.rgbText}>RGB: {item.rgb}</Text>
                                     </View>
-                                    <Text style={styles.percentText}>{item.percent}%</Text>
                                 </View>
-                                
-                                <View style={styles.barBackground}>
-                                    <View style={[
-                                        styles.barFill, 
-                                        { 
-                                            backgroundColor: item.hex, 
-                                            width: `${item.percent}%`,
-                                        }
-                                    ]} />
-                                </View>
-                            </TouchableOpacity>
-                        );
-                    })}
+                                <Text style={styles.percentText}>{item.percent}%</Text>
+                            </View>
+                            <View style={styles.barBackground}>
+                                <View style={[styles.barFill, { backgroundColor: item.hex, width: `${item.percent}%` }]} />
+                            </View>
+                        </TouchableOpacity>
+                    ))}
                 </View>
 
                 <View style={styles.buttonArea}>
@@ -166,23 +179,23 @@ const ResultsScreen = ({ navigation, route }) => {
                         <ActivityIndicator size="large" color="#69ED44" />
                     ) : mode === 'view' ? (
                         <>
-                            {isSaved ? (
-                                <TouchableOpacity 
-                                    style={[styles.btnMain, { backgroundColor: '#69ED44' }]} 
-                                    onPress={() => navigation.navigate('Home')}
-                                >
-                                    <Text style={styles.btnTextBlack}>VER MIS PROYECTOS</Text>
-                                </TouchableOpacity>
-                            ) : (
-                                <TouchableOpacity style={styles.btnMain} onPress={() => setShowSaveModal(true)}>
-                                    <Text style={styles.btnTextBlack}>GUARDAR PROYECTO</Text>
-                                </TouchableOpacity>
-                            )}
-
                             <TouchableOpacity style={styles.btnAccent} onPress={() => setMode('combining')}>
                                 <Text style={styles.btnTextGreen}>CREAR COMBINACIÓN</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.btnSecondary} onPress={() => navigation.navigate('Scanner')}>
+
+                            <TouchableOpacity 
+                                style={styles.btnMain} 
+                                onPress={() => setShowSaveModal(true)}
+                            >
+                                <Text style={styles.btnTextBlack}>
+                                    {isUpdatingName ? "EDITAR NOMBRE" : "GUARDAR PROYECTO"}
+                                </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity 
+                                style={styles.btnSecondary} 
+                                onPress={() => navigation.navigate('Scanner', { hideManual: true })}
+                            >
                                 <Text style={styles.btnTextWhite}>NUEVA CAPTURA</Text>
                             </TouchableOpacity>
                         </>
@@ -204,35 +217,30 @@ const ResultsScreen = ({ navigation, route }) => {
             <Modal visible={showSaveModal} transparent animationType="fade">
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalBox}>
-                        {loading ? (
-                            <ActivityIndicator size="large" color="#69ED44" />
-                        ) : (
-                            <>
-                                <Text style={styles.modalTitle}>NOMBRE DEL PROYECTO</Text>
-                                <TextInput 
-                                    style={styles.input} 
-                                    placeholder="Ej: Pared Sala de Estar" 
-                                    placeholderTextColor="#636366"
-                                    value={captureName}
-                                    onChangeText={setCaptureName}
-                                    autoFocus={true}
-                                />
-                                <View style={styles.modalActions}>
-                                    <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setShowSaveModal(false)}>
-                                        <Text style={styles.btnTextWhite}>VOLVER</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity style={styles.modalBtnConfirm} onPress={handleConfirmSave}>
-                                        <Text style={styles.btnTextBlack}>CONFIRMAR</Text>
-                                    </TouchableOpacity>
-                                </View>
-                            </>
-                        )}
+                        <Text style={styles.modalTitle}>NOMBRE DEL PROYECTO</Text>
+                        <TextInput 
+                            style={styles.input} 
+                            placeholder="Ej: Mi Proyecto Pro" 
+                            placeholderTextColor="#636366"
+                            value={captureName}
+                            onChangeText={setCaptureName}
+                            autoFocus={true}
+                        />
+                        <View style={styles.modalActions}>
+                            <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setShowSaveModal(false)}>
+                                <Text style={styles.btnTextWhite}>VOLVER</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.modalBtnConfirm} onPress={handleConfirmSave}>
+                                <Text style={styles.btnTextBlack}>CONFIRMAR</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 </View>
             </Modal>
         </View>
     );
 };
+
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#0F0F10' },

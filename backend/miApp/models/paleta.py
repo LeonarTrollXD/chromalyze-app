@@ -1,4 +1,6 @@
 from django.db import models
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 
 class Paleta(models.Model):
     ORIGEN_CHOICES = [
@@ -16,7 +18,7 @@ class Paleta(models.Model):
         help_text="Indica si la paleta nació de una foto o del combinador manual"
     )
 
-    # Si borras la captura, la paleta desaparece (Limpieza automática)
+    # Si borras la captura, la paleta desaparece automáticamente por CASCADE
     captura = models.ForeignKey(
         'miApp.Captura', 
         on_delete=models.CASCADE, 
@@ -25,7 +27,7 @@ class Paleta(models.Model):
         related_name='paletas_generadas'
     )
 
-    # RELACIÓN MAESTRA: Usamos 'through' para guardar el porcentaje sin ensuciar el modelo Color
+    # RELACIÓN MAESTRA
     colores = models.ManyToManyField(
         'miApp.Color', 
         through='ComposicionPaleta',
@@ -51,23 +53,32 @@ class Paleta(models.Model):
         ordering = ['-fecha_creacion']
 
 
-# --- NUEVA TABLA INTERMEDIA ---
+# --- TABLA INTERMEDIA ---
 class ComposicionPaleta(models.Model):
-    """
-    Esta tabla es la que une la Paleta con el Color.
-    Aquí es donde vive el porcentaje de dominancia.
-    """
     paleta = models.ForeignKey('Paleta', on_delete=models.CASCADE)
     color = models.ForeignKey('miApp.Color', on_delete=models.CASCADE)
-    
-    # Aquí vive la dominancia: específica para CADA paleta
-    porcentaje = models.IntegerField(
-        default=0,
-        help_text="Qué tanto brilla este color en esta paleta específicamente"
-    )
+    porcentaje = models.IntegerField(default=0)
 
     class Meta:
         verbose_name = "Composición de Paleta"
         verbose_name_plural = "Composiciones de Paletas"
-        # Ordenamos para que en la paleta el color más dominante salga primero
         ordering = ['-porcentaje']
+
+
+# --- SIGNALS: EL ÚNICO ENCARGADO DE LA LIMPIEZA ---
+
+@receiver(post_delete, sender=Paleta)
+def eliminar_captura_al_borrar_paleta(sender, instance, **kwargs):
+    """
+    Se dispara tras borrar una Paleta. Si es de cámara, borra la captura.
+    El bloque try/except evita el error 'DoesNotExist' si el CASCADE ya actuó.
+    """
+    if instance.origen == 'CAMARA' and instance.captura_id:
+        try:
+            # Import local para evitar importaciones circulares
+            from ..models.captura import Captura
+            captura = Captura.objects.get(id=instance.captura_id)
+            captura.delete()
+        except Exception:
+            # Si la captura ya no existe, no hacemos nada (evita el error 500)
+            pass

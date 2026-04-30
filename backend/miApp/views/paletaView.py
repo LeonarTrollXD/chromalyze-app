@@ -1,54 +1,128 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
-from drf_spectacular.utils import extend_schema
-
-# Importaciones relativas según tu estructura
-from ..models.paleta import Paleta
-from ..models.usuario import Usuario
+from django.db import transaction
+from ..models.paleta import Paleta, ComposicionPaleta
+from ..models.color import Color
 from ..serializers.paletaSerializer import PaletaSerializer
 
 class PaletaViewSet(viewsets.ModelViewSet):
-    """
-    CRUD completo para Paletas de Colores con validación de límite de 3 para usuarios estándar.
-    """
     queryset = Paleta.objects.all()
     serializer_class = PaletaSerializer
 
-    @extend_schema(
-        summary="Crear una nueva paleta",
-        description="Valida que si el usuario tiene Rol ID 2, no supere las 3 paletas guardadas."
-    )
     def create(self, request, *args, **kwargs):
-        # 1. Obtención del usuario desde los datos enviados
+        # 1. Obtener datos del request
         user_id = request.data.get('usuario')
-        
-        try:
-            user = Usuario.objects.get(id=user_id)
-        except Usuario.DoesNotExist:
-            return Response({"error": "Usuario no encontrado"}, status=status.HTTP_404_NOT_FOUND)
-        
-        # 2. Lógica de Negocio: Validación de límite (Rol 2 = Estándar)
-        if user.rol.id == 2:
-            conteo = Paleta.objects.filter(usuario=user).count()
-            if conteo >= 3:
+        colores_hex = request.data.get('colores_hex', [])
+        nombre = request.data.get('nombre', '').strip()
+        origen = request.data.get('origen', 'MANUAL').upper()
+
+        # 2. VALIDACIÓN: Nombre repetido para el mismo usuario
+        if Paleta.objects.filter(usuario_id=user_id, nombre__iexact=nombre).exists():
+            return Response(
+                {"error": "Ya tienes un proyecto con este nombre."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 3. BLOQUEO DE SEGURIDAD FILTRADO POR ORIGEN (Plan Básico)
+        if origen == 'MANUAL':
+            conteo_manual = Paleta.objects.filter(usuario_id=user_id, origen='MANUAL').count()
+            print(f"DEBUG: Usuario {user_id} tiene {conteo_manual} paletas MANUALES.")
+
+            if conteo_manual >= 3:
+                mensaje_marketing = (
+                    "Máximo 3 paletas, el plan Premium y su interfaz aún están en desarrollo, próximamente guardado ilimitado."
+                )
                 return Response(
-                    {"error": "Límite de 3 paletas alcanzado. ¡Pásate a PREMIUM para crear infinitas!"}, 
-                    status=status.HTTP_403_FORBIDDEN
+                    {"error": mensaje_marketing}, 
+                    status=status.HTTP_400_BAD_REQUEST
                 )
         
-        # 3. Proceder con la creación estándar si pasa la validación
-        return super().create(request, *args, **kwargs)
+        # 4. Proceso de creación
+        try:
+            with transaction.atomic():
+                nueva_paleta = Paleta.objects.create(
+                    nombre=nombre,
+                    origen=origen,
+                    usuario_id=user_id
+                )
 
-    @extend_schema(summary="Listar todas las paletas")
-    def list(self, request, *args, **kwargs):
-        return super().list(request, *args, **kwargs)
+                for hex_code in colores_hex:
+                    clean_hex = hex_code.strip().upper()
+                    if not clean_hex.startswith('#'):
+                        clean_hex = f"#{clean_hex}"
+                        
+                    color_obj, _ = Color.objects.get_or_create(hex_code=clean_hex)
+                    
+                    ComposicionPaleta.objects.create(
+                        paleta=nueva_paleta,
+                        color=color_obj,
+                        porcentaje=0
+                    )
 
-    @extend_schema(summary="Eliminar una paleta (ID)")
-    def destroy(self, request, *args, **kwargs):
-        # Habilita el botón DELETE en Swagger
-        return super().destroy(request, *args, **kwargs)
+                serializer = self.get_serializer(nueva_paleta)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-    @extend_schema(summary="Actualizar nombre o colores de una paleta (ID)")
+        except Exception as e:
+            print(f"❌ ERROR EN CREACIÓN: {str(e)}")
+            return Response({"error": "No se pudo procesar la solicitud de guardado."}, status=status.HTTP_400_BAD_REQUEST)
+
     def update(self, request, *args, **kwargs):
-        # Habilita el botón PUT/PATCH en Swagger
-        return super().update(request, *args, **kwargs)
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        
+        # Extraemos datos del cuerpo de la petición
+        user_id = request.data.get('usuario', instance.usuario_id)
+        nombre = request.data.get('nombre', instance.nombre).strip()
+        colores_hex = request.data.get('colores_hex')
+
+        # 1. VALIDACIÓN: Nombre repetido (excluyendo la paleta actual)
+        nombre_repetido = Paleta.objects.filter(
+            usuario_id=user_id, 
+            nombre__iexact=nombre
+        ).exclude(id=instance.id).exists()
+
+        if nombre_repetido:
+            return Response(
+                {"error": "Ya tienes un proyecto con este nombre."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 2. Proceso de actualización
+        try:
+            with transaction.atomic():
+                # Actualizar datos básicos
+                instance.nombre = nombre
+                instance.save()
+
+                # 3. Si se enviaron colores, reemplazamos la composición
+                if colores_hex is not None:
+                    # Limpiamos relaciones anteriores
+                    ComposicionPaleta.objects.filter(paleta=instance).delete()
+
+                    # Registramos los nuevos colores
+                    for hex_code in colores_hex:
+                        clean_hex = hex_code.strip().upper()
+                        if not clean_hex.startswith('#'):
+                            clean_hex = f"#{clean_hex}"
+                        
+                        color_obj, _ = Color.objects.get_or_create(hex_code=clean_hex)
+                        
+                        ComposicionPaleta.objects.create(
+                            paleta=instance,
+                            color=color_obj,
+                            porcentaje=0
+                        )
+
+                serializer = self.get_serializer(instance)
+                return Response(serializer.data)
+
+        except Exception as e:
+            print(f"❌ ERROR EN ACTUALIZACIÓN: {str(e)}")
+            return Response({"error": "No se pudo actualizar la paleta."}, status=status.HTTP_400_BAD_REQUEST)
+
+    def get_queryset(self):
+        queryset = Paleta.objects.all()
+        user_id = self.request.query_params.get('usuario')
+        if user_id:
+            queryset = queryset.filter(usuario_id=user_id)
+        return queryset

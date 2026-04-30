@@ -84,15 +84,57 @@ class CapturaViewSet(viewsets.ModelViewSet):
             "colores_hex": colores_extraidos 
         }, status=status.HTTP_200_OK)
 
+    def partial_update(self, request, *args, **kwargs):
+        """
+        Permite actualizar solo el nombre del proyecto sin re-procesar la imagen.
+        """
+        instance = self.get_object()
+        nuevo_nombre = request.data.get('nombre', '').strip()
+        usuario_id = instance.usuario_id
+
+        if not nuevo_nombre:
+            return Response({"error": "El nombre no puede estar vacío."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validación de nombre duplicado excluyendo la instancia actual
+        existe = Captura.objects.filter(
+            nombre__iexact=nuevo_nombre, 
+            usuario_id=usuario_id
+        ).exclude(id=instance.id).exists()
+
+        if existe:
+            return Response(
+                {"error": "Ya tienes un proyecto con este nombre."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        instance.nombre = nuevo_nombre
+        instance.save()
+
+        # Sincronizar el nombre de la paleta asociada
+        Paleta.objects.filter(captura=instance).update(nombre=f"Paleta de {nuevo_nombre}")
+
+        return Response({
+            "mensaje": "Nombre actualizado correctamente",
+            "nombre": instance.nombre
+        }, status=status.HTTP_200_OK)
+
     def create(self, request, *args, **kwargs):
-        """
-        GUARDADO DEFINITIVO con validación de nombre único por usuario.
-        """
         data = request.data.copy()
         nombre = data.get('nombre', '').strip()
         usuario_id = data.get('usuario')
 
-        # --- VALIDACIÓN DE NOMBRE DUPLICADO ---
+        # 1. VALIDACIÓN DE LÍMITE PREMIUM
+        conteo_capturas = Captura.objects.filter(usuario_id=usuario_id).count()
+        if conteo_capturas >= 3:
+            mensaje_premium = (
+               "Máximo 3 capturas, el plan Premium y su interfaz aún están en desarrollo, próximamente guardado ilimitado." 
+            )
+            return Response(
+                {"error": mensaje_premium}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 2. VALIDACIÓN DE NOMBRE DUPLICADO
         if nombre and usuario_id:
             existe = Captura.objects.filter(nombre__iexact=nombre, usuario_id=usuario_id).exists()
             if existe:

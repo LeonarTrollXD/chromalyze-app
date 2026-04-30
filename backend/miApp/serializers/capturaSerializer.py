@@ -26,13 +26,13 @@ class CapturaSerializer(serializers.ModelSerializer):
         usuario = data.get('usuario')
         nombre = data.get('nombre')
         
-        # --- 1. VALIDACIÓN DE LÍMITE (PLAN BÁSICO) ---
+        # --- 1. VALIDACIÓN DE LÍMITE (PLAN BÁSICO / PREMIUM EN DESARROLLO) ---
         # Solo aplicamos el límite si es una creación nueva (no hay self.instance)
         if usuario and not self.instance:
             conteo = Captura.objects.filter(usuario=usuario).count()
             if conteo >= 3:
                 raise serializers.ValidationError({
-                    "limite": "Has alcanzado el límite de 3 capturas del plan básico. ¡Pásate a Premium para guardar proyectos ilimitados!"
+                    "limite": "Máximo 3 capturas, el plan Premium y su interfaz aún están en desarrollo, próximamente guardado ilimitado ¡Pronto podrás suscribirte!"
                 })
 
         # --- 2. VALIDACIÓN DE NOMBRE DUPLICADO ---

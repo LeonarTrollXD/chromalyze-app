@@ -2,6 +2,7 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
+// URL BASE - Asegúrate de que esta IP sea la correcta de tu servidor
 const API_BASE_URL = 'http://192.168.100.29:8000/api/'; 
 
 const api = axios.create({
@@ -11,10 +12,10 @@ const api = axios.create({
 
 /**
  * INTERCEPTOR DE PETICIONES
- * Agrega el slash final y el token de autorización si existe.
  */
 api.interceptors.request.use(
     async (config) => {
+        // Asegurar slash final para Django (Crucial para evitar errores 301/404)
         if (config.url && !config.url.endsWith('/') && !config.url.includes('?')) {
             config.url += '/';
         }
@@ -34,24 +35,21 @@ api.interceptors.request.use(
 );
 
 /**
- * INTERCEPTOR DE RESPUESTAS (Auto-Logout)
+ * INTERCEPTOR DE RESPUESTAS
  */
 api.interceptors.response.use(
     (response) => response,
     async (error) => {
         if (error.response && error.response.status === 401) {
-            console.log("Detectado error 401: Sesión inválida.");
             await AsyncStorage.multiRemove(['userToken', 'userData']);
-            if (global.forceLogout) {
-                global.forceLogout();
-            }
+            if (global.forceLogout) global.forceLogout();
         }
         return Promise.reject(error);
     }
 );
 
 /**
- * SERVICIOS
+ * SERVICIOS DE AUTENTICACIÓN
  */
 export const authService = {
     login: async (correo, password) => {
@@ -63,11 +61,12 @@ export const authService = {
             });
 
             if (response.data && response.data.token) {
+                const userData = response.data.user || response.data;
                 await AsyncStorage.setItem('userToken', response.data.token);
-                await AsyncStorage.setItem('userData', JSON.stringify(response.data.user || response.data));
+                await AsyncStorage.setItem('userData', JSON.stringify(userData));
                 return response.data;
             }
-            throw new Error("Respuesta del servidor incompleta.");
+            throw new Error("Error en la respuesta del servidor.");
         } catch (error) { 
             return handleError(error, "Error en login"); 
         }
@@ -87,15 +86,39 @@ export const authService = {
     }
 };
 
+/**
+ * SERVICIOS DE CAPTURA (Cámara)
+ */
 export const capturaService = {
+    crearCaptura: async (formData) => {
+        try {
+            const response = await api.post('capturas/', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            return response.data;
+        } catch (error) {
+            return handleError(error, "Error al guardar captura");
+        }
+    },
+
+    actualizarNombreCaptura: async (id, nuevoNombre) => {
+        try {
+            const response = await api.patch(`capturas/${id}/`, {
+                nombre: nuevoNombre
+            });
+            return response.data;
+        } catch (error) {
+            return handleError(error, "Error al actualizar nombre de captura");
+        }
+    },
+
     analizarRapido: async (imageUri) => {
         try {
             const formData = new FormData();
-            const filename = imageUri.split('/').pop() || 'temp_scan.jpg';
-            const cleanUri = Platform.OS === 'android' ? imageUri : imageUri.replace('file://', '');
-
+            const filename = imageUri.split('/').pop() || 'scan.jpg';
+            
             formData.append('imagen', { 
-                uri: cleanUri, 
+                uri: Platform.OS === 'android' ? imageUri : imageUri.replace('file://', ''), 
                 name: filename, 
                 type: 'image/jpeg' 
             });
@@ -106,63 +129,100 @@ export const capturaService = {
             });
             return response.data; 
         } catch (error) { 
-            return handleError(error, "Error en análisis rápido"); 
-        }
-    },
-
-    crearCaptura: async (formData) => {
-        try {
-            const response = await api.post('capturas/', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
-            return response.data; 
-        } catch (error) { 
-            return handleError(error, "Error al guardar captura oficial"); 
-        }
-    },
-
-    obtenerBiblioteca: async () => {
-        try {
-            const response = await api.get('color/');
-            return response.data;
-        } catch (error) { 
-            return handleError(error, "Error al recuperar biblioteca"); 
+            return handleError(error, "Error en análisis"); 
         }
     }
 };
 
 /**
- * MANEJADOR DE ERRORES CENTRALIZADO (Optimizado para Registro)
+ * SERVICIOS DE PALETAS (Unificado y Corregido)
+ */
+export const paletaService = {
+    // CORRECCIÓN: Se añade capturaId como parámetro opcional para vincular la imagen
+    guardarPaletaTecnica: async (nombre, origen, colores, userId, capturaId = null) => {
+        try {
+            const payload = {
+                nombre: nombre,
+                origen: origen, 
+                colores_hex: colores,
+                usuario: userId
+            };
+
+            // Vínculo crítico para que la biblioteca muestre la foto
+            if (capturaId) {
+                payload.captura = capturaId;
+            }
+
+            const response = await api.post('paletas/', payload);
+            return response.data;
+        } catch (error) {
+            return handleError(error, "Error al guardar paleta");
+        }
+    },
+
+    actualizarPaleta: async (paletaId, data) => {
+        try {
+            const payload = {
+                nombre: data.nombre,
+                colores_hex: data.colores, 
+                usuario: data.usuario
+            };
+            const response = await api.patch(`paletas/${paletaId}/`, payload);
+            return response.data;
+        } catch (error) {
+            return handleError(error, "Error al actualizar paleta");
+        }
+    },
+
+    listarPaletas: async (userId) => {
+        try {
+            const response = await api.get(`paletas/?usuario=${userId}`);
+            
+            // Procesamiento de datos para asegurar que el Frontend entienda los tipos
+            const paletasProcesadas = response.data.map(p => ({
+                ...p,
+                // Normalización de origen para la UI
+                origen: p.origen || (p.origen_display?.includes("Manual") ? "MANUAL" : "CAMARA"),
+                colores_hex: p.colores_hex || []
+            }));
+
+            return { data: paletasProcesadas };
+        } catch (error) {
+            return handleError(error, "Error al obtener paletas");
+        }
+    },
+
+    eliminarPaleta: async (paletaId) => {
+        try {
+            const response = await api.delete(`paletas/${paletaId}/`);
+            return response.data;
+        } catch (error) {
+            return handleError(error, "Error al eliminar la paleta");
+        }
+    }
+};
+
+/**
+ * MANEJADOR DE ERRORES CENTRALIZADO
  */
 const handleError = (error, defaultMsg) => {
     if (error.response) {
         const data = error.response.data;
-
-        // 1. Manejo específico para CORREO YA EXISTENTE
-        if (data.correo) {
-            const msg = Array.isArray(data.correo) ? data.correo[0] : data.correo;
-            // Si Django devuelve el mensaje estándar de "already exists" o similar
-            if (msg.toLowerCase().includes("exists") || msg.toLowerCase().includes("existe")) {
-                throw new Error("Este correo ya está vinculado a otra cuenta.");
-            }
-            throw new Error(msg);
+        
+        // Manejo específico de errores de validación de Django
+        if (data.usuario) {
+            const msg = Array.isArray(data.usuario) ? data.usuario[0] : data.usuario;
+            throw new Error(msg); 
         }
-
-        // 2. Manejo de Sesión
-        if (error.response.status === 401) {
-            throw new Error("Sesión expirada. Por favor, inicia sesión de nuevo.");
-        }
-
-        // 3. Otros campos (username, error general, detail)
-        if (data.username) throw new Error("El nombre de usuario ya existe.");
-        if (data.error) throw new Error(data.error);
+        if (data.correo) throw new Error("Este correo ya está registrado.");
         if (data.detail) throw new Error(data.detail);
-
-        throw new Error(JSON.stringify(data));
+        if (data.error) throw new Error(data.error);
+        
+        throw new Error(typeof data === 'object' ? JSON.stringify(data) : data);
     }
     
     if (error.message === 'Network Error') {
-        throw new Error("No se pudo conectar con el servidor. Verifica tu conexión.");
+        throw new Error("Sin conexión al servidor. Verifica que tu PC y el celular estén en la misma red y la IP sea correcta.");
     }
     
     throw new Error(error.message || defaultMsg);
