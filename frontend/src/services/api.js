@@ -3,7 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
 // URL BASE - Asegúrate de que esta IP sea la correcta de tu servidor
-const API_BASE_URL = 'https://3vpx7rpidc.us-east-1.awsapprunner.com/api/'; 
+// Cambia la URL de App Runner por la IP de tu servidor EC2
+const API_BASE_URL = 'http://52.54.14.2:8000/api/';
 
 const api = axios.create({
     baseURL: API_BASE_URL,
