@@ -6,10 +6,10 @@ import { Platform } from 'react-native';
  * CONFIGURACIÓN DE URL DE PRODUCCIÓN (AWS EC2)
  * Se usa la IP pública de tu instancia para que la APK sea independiente.
  */
-export const API_URL = "http://52.54.14.2:8000/api/";
+export const API_URL = "http://52.54.14.2:8000/api";  // ← SIN slash al final
 
 const api = axios.create({
-    baseURL: API_URL, // Corregido: Ahora coincide con la constante de arriba
+    baseURL: API_URL,
     timeout: 30000,
 });
 
@@ -19,13 +19,13 @@ const api = axios.create({
  */
 api.interceptors.request.use(
     async (config) => {
-        // Asegurar slash final para Django (Crucial para evitar errores 301/404)
-        if (config.url && !config.url.endsWith('/') && !config.url.includes('?')) {
+        // CORREGIDO: Solo agrega slash si no existe y no es URL completa
+        if (config.url && !config.url.endsWith('/') && !config.url.includes('?') && !config.url.startsWith('http')) {
             config.url += '/';
         }
 
-        const isLogin = config.url.includes('login');
-        const isRegister = config.url.includes('usuarios') && config.method === 'post';
+        const isLogin = config.url && config.url.includes('login');
+        const isRegister = config.url && config.url.includes('usuarios') && config.method === 'post';
 
         // Si no es login o registro, adjuntamos el Token de autenticación
         if (!isLogin && !isRegister) {
@@ -74,7 +74,7 @@ export const authService = {
             }
             throw new Error("Respuesta inválida del servidor.");
         } catch (error) { 
-            return handleError(error, "Error en inicio de sesión"); 
+            throw handleError(error, "Error en inicio de sesión"); 
         }
     },
 
@@ -87,7 +87,7 @@ export const authService = {
             });
             return response.data;
         } catch (error) { 
-            return handleError(error, "Error en registro"); 
+            throw handleError(error, "Error en registro"); 
         }
     }
 };
@@ -103,7 +103,7 @@ export const capturaService = {
             });
             return response.data;
         } catch (error) {
-            return handleError(error, "Error al guardar captura");
+            throw handleError(error, "Error al guardar captura");
         }
     },
 
@@ -114,7 +114,7 @@ export const capturaService = {
             });
             return response.data;
         } catch (error) {
-            return handleError(error, "Error al actualizar nombre");
+            throw handleError(error, "Error al actualizar nombre");
         }
     },
 
@@ -135,7 +135,7 @@ export const capturaService = {
             });
             return response.data; 
         } catch (error) { 
-            return handleError(error, "Error en análisis de color"); 
+            throw handleError(error, "Error en análisis de color"); 
         }
     }
 };
@@ -160,7 +160,7 @@ export const paletaService = {
             const response = await api.post('paletas/', payload);
             return response.data;
         } catch (error) {
-            return handleError(error, "Error al guardar paleta");
+            throw handleError(error, "Error al guardar paleta");
         }
     },
 
@@ -174,7 +174,7 @@ export const paletaService = {
             const response = await api.patch(`paletas/${paletaId}/`, payload);
             return response.data;
         } catch (error) {
-            return handleError(error, "Error al actualizar paleta");
+            throw handleError(error, "Error al actualizar paleta");
         }
     },
 
@@ -190,7 +190,7 @@ export const paletaService = {
 
             return { data: paletasProcesadas };
         } catch (error) {
-            return handleError(error, "Error al obtener paletas");
+            throw handleError(error, "Error al obtener paletas");
         }
     },
 
@@ -199,7 +199,7 @@ export const paletaService = {
             const response = await api.delete(`paletas/${paletaId}/`);
             return response.data;
         } catch (error) {
-            return handleError(error, "Error al eliminar la paleta");
+            throw handleError(error, "Error al eliminar la paleta");
         }
     }
 };
